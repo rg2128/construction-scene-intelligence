@@ -1,0 +1,38 @@
+# Construction Scene Intelligence & Spatial Understanding
+
+A multimodal computer vision system for construction-site scene understanding.
+
+This project analyzes construction-site images and videos using object detection, segmentation, depth estimation, tracking, and vision-language reasoning.
+
+## Planned Features
+
+- Object detection using YOLOv8
+- Promptable segmentation using SAM2
+- Relative depth estimation using MiDaS/DPT
+- Object-level spatial summaries
+- Vision-language scene reasoning using Molmo/LLaVA-style models
+- Structured scene reports
+- Streamlit demo interface
+
+## Project Roadmap
+
+### Phase 1: Object Detection
+- Run YOLOv8 on construction-site images
+- Save bounding boxes as JSON/CSV
+- Generate visualizations
+
+### Phase 2: Segmentation
+- Use detected boxes as prompts for SAM2
+- Save object masks
+- Overlay masks on images
+
+### Phase 3: Spatial Understanding
+- Estimate relative depth
+- Combine boxes, masks, and depth into object-level scene summaries
+
+### Phase 4: Vision-Language Reasoning
+- Generate natural-language scene descriptions
+- Answer questions about image content
+- Produce structured reports
+
+### Phase 5:
