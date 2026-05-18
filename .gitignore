@@ -35,4 +35,18 @@ This project analyzes construction-site images and videos using object detection
 - Answer questions about image content
 - Produce structured reports
 
-### Phase 5:
+
+.venv/
+__pycache__/
+*.pyc
+
+outputs/*
+!outputs/.gitkeep
+
+data/*
+!data/sample_images/
+!data/sample_images/.gitkeep
+
+*.pt
+*.pth
+*.onnx
