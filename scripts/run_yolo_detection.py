@@ -86,8 +86,8 @@ def remove_nested_boxes(
             much_smaller = area_ratio < max_area_ratio
             much_lower_conf = small_conf < (large_conf - confidence_margin)
 
-            # if nested and much_smaller and much_lower_conf:
-            if much_lower_conf:
+            if nested and much_smaller and much_lower_conf:
+            #if much_lower_conf:
 
                 keep = False
                 break
@@ -99,7 +99,7 @@ def remove_nested_boxes(
 def run_yolo_detection(
     input_path,
     output_dir,
-    model_name="yolov8n.pt",
+    model_name="yolov11n.pt",
     conf=0.25,
     keep_classes=None,
     min_box_area=5000,
@@ -174,7 +174,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, help="Image file or folder")
     parser.add_argument("--output", default="outputs", help="Output folder")
-    parser.add_argument("--model", default="yolov8n.pt", help="YOLO model name/path")
+    parser.add_argument("--model", default="yolov11n.pt", help="YOLO model name/path")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument(
         "--keep-classes",
