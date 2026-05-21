@@ -1,0 +1,20 @@
+input_path: data/sample_images
+output_dir: outputs/person_ppe_pipeline_config
+
+person_model: yolo11n.pt
+ppe_model: runs/segment/outputs/training/yolo11n_seg_construction_ppe/weights/best.pt
+
+person_conf: 0.25
+ppe_conf: 0.05
+ppe_imgsz: 640
+
+crop_mode: adaptive   # adaptive or fixed
+fixed_padding_px: 40
+
+small_crop_target_height: 256
+
+ppe_classes:
+  - helmet
+  - vest
+  - without_helmet
+  - without_vest
