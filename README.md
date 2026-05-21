@@ -82,11 +82,13 @@ The pipeline generates:
 
 ```text
 outputs/
-├── worker crops & depth maps
-├── PPE segmentation masks
-├── worker-level annotated images
-├── JSON safety summaries
-└── human-readable PPE reports
+├── crops/
+├── segmentation/
+├── depth/
+├── overlays/
+├── reports/
+└── summaries/
+
 ```
 
 Example worker report:
@@ -101,6 +103,21 @@ Example worker report:
   ]
 }
 ```
+
+# Example Results
+
+## Input
+<img src="docs/examples/input.jpg" width="700">
+
+## PPE Segmentation
+<img src="docs/examples/segmentation.jpg" width="700">
+
+## Depth Estimation
+<img src="docs/examples/depth.jpg" width="700">
+
+## Final Ensemble Output
+<img src="docs/examples/final_pipeline.jpg" width="700">
+
 
 ---
 
