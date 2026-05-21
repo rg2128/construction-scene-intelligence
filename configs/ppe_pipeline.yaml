@@ -25,3 +25,7 @@ padding_values:
   - 20
   - 40
   - 60
+
+use_depth_filtering: true
+depth_model: DPT_Hybrid
+depth_tolerance_std: 1.0

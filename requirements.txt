@@ -7,3 +7,4 @@ Pillow
 pyyaml
 tqdm
 streamlit
+timm

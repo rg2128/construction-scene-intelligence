@@ -66,13 +66,23 @@ This improves robustness for:
 
 ---
 
+# Depth-Aware PPE Filtering
+
+The final `PersonPPE.py` pipeline optionally uses monocular depth estimation to improve worker-level PPE assignment in crowded or overlapping scenes.
+
+Depth is used as a consistency filter after PPE segmentation. For each detected worker, the pipeline estimates relative depth inside the worker box, then compares it with the median depth of each PPE segmentation mask. PPE masks with depth values inconsistent with the target worker can be filtered before aggregation.
+
+This helps in cases where padding includes nearby or nested workers.
+
+---
+
 # Example Outputs
 
 The pipeline generates:
 
 ```text
 outputs/
-├── worker crops
+├── worker crops & depth maps
 ├── PPE segmentation masks
 ├── worker-level annotated images
 ├── JSON safety summaries
@@ -130,7 +140,19 @@ Runs YOLO11 segmentation and exports polygon masks.
 
 ---
 
+
+
+## Depth Estimation
+
+```text
+scripts/run_depth_estimation.py
+
+
+
 ## Worker-Level PPE Pipeline
+
+
+---
 
 ```text
 scripts/PersonPPE.py
@@ -195,8 +217,10 @@ ppe_classes:
   - vest
   - without_helmet
   - without_vest
-```
 
+use_depth_filtering: true
+depth_model: DPT_Hybrid
+depth_tolerance_std: 1.0
 ---
 
 # Installation
