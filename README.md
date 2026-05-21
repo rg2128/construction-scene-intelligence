@@ -140,13 +140,14 @@ Runs YOLO11 segmentation and exports polygon masks.
 
 ---
 
-
-
 ## Depth Estimation
 
 ```text
 scripts/run_depth_estimation.py
-'''
+```
+
+Runs MiDaS monocular depth estimation for relative scene geometry and depth-aware PPE filtering.
+
 ---
 
 ## Worker-Level PPE Pipeline
