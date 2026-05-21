@@ -22,9 +22,6 @@ Fine-tuned YOLO11 segmentation model for:
 
 - helmet
 - vest
-- without_helmet
-- without_vest
-
 ---
 
 ## Two-Stage PPE Pipeline
@@ -111,7 +108,7 @@ construction-scene-intelligence/
 
 ---
 
-# Key Scripts
+# Script
 
 ## Detection
 
@@ -136,7 +133,7 @@ Runs YOLO11 segmentation and exports polygon masks.
 ## Worker-Level PPE Pipeline
 
 ```text
-scripts/run_person_ppe_pipeline.py
+scripts/PersonPPE.py
 ```
 
 Runs:
@@ -149,18 +146,6 @@ Runs:
 Supports:
 
 * adaptive padding
-* crop resizing
-* configurable inference
-
----
-
-## Padding Ensemble PPE Pipeline
-
-```text
-scripts/run_person_ppe_padding_ensemble.py
-```
-
-Runs multiple crop paddings per worker and aggregates predictions into a final ensemble decision.
 
 Generates:
 
@@ -261,74 +246,3 @@ name=yolo11n_seg_construction_ppe
 
 ---
 
-# Running the Ensemble PPE Pipeline
-
-```bash
-python scripts/run_person_ppe_padding_ensemble.py \
---config configs/ppe_pipeline.yaml
-```
-
----
-
-# Generated Outputs
-
-```text
-outputs/person_ppe_padding_ensemble/
-├── *_crop.jpg
-├── *_seg.jpg
-├── *_pipeline_ensemble.jpg
-├── person_ppe_padding_ensemble_summary.json
-└── ppe_ensemble_report.txt
-```
-
----
-
-# Current Research / Engineering Ideas
-
-## Short-Term
-
-* Streamlit visualization dashboard
-* Video support
-* Multi-frame tracking
-* Worker trajectory analysis
-* PPE temporal consistency
-
----
-
-## Mid-Term
-
-* SAM2 integration
-* Depth estimation
-* Spatial hazard reasoning
-* Scene graph generation
-* Vision-language scene understanding
-
----
-
-## Long-Term
-
-* Autonomous construction-site inspection
-* Agentic multimodal reasoning
-* Safety analytics over time
-* Real-time deployment pipelines
-
----
-
-# Technologies Used
-
-* YOLO11
-* OpenCV
-* PyTorch
-* Ultralytics
-* YAML configuration pipelines
-* Python
-
----
-
-# Author
-
-Rahul Garg
-
-Systems neuroscience → multimodal AI / computer vision transition project focused on scene understanding, safety analysis, and spatial reasoning systems.
-
-```
