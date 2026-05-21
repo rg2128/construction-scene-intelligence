@@ -1,5 +1,5 @@
 input_path: data/sample_images
-output_dir: outputs/person_ppe_pipeline_config
+output_dir: outputs/PersonPPE
 
 person_model: yolo11n.pt
 ppe_model: runs/segment/outputs/training/yolo11n_seg_construction_ppe/weights/best.pt
@@ -18,3 +18,10 @@ ppe_classes:
   - vest
   - without_helmet
   - without_vest
+
+padding_values:
+  - 0
+  - 10
+  - 20
+  - 40
+  - 60
