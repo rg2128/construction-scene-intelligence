@@ -147,7 +147,7 @@ Runs YOLO11 segmentation and exports polygon masks.
 ```text
 scripts/run_depth_estimation.py
 
-
+---
 
 ## Worker-Level PPE Pipeline
 
