@@ -22,6 +22,9 @@ Fine-tuned YOLO11 segmentation model for:
 
 - helmet
 - vest
+- without_helmet
+- without_vest
+
 ---
 
 ## Two-Stage PPE Pipeline
@@ -38,7 +41,7 @@ Worker Cropping
 PPE Segmentation
     ↓
 Worker-Level Safety Analysis
-````
+```
 
 This improves PPE analysis by focusing segmentation only inside detected worker regions.
 
@@ -58,17 +61,17 @@ Each crop is analyzed independently and aggregated into a final worker-level pre
 
 This improves robustness for:
 
-* tiny workers
-* occlusions
-* crowded scenes
-* nested detections
-* partial PPE visibility
+- tiny workers
+- occlusions
+- crowded scenes
+- nested detections
+- partial PPE visibility
 
 ---
 
 # Depth-Aware PPE Filtering
 
-The final `PersonPPE.py` pipeline optionally uses monocular depth estimation to improve worker-level PPE assignment in crowded or overlapping scenes.
+The final `run_depth_aware_ppe_pipeline.py` pipeline optionally uses monocular depth estimation to improve worker-level PPE assignment in crowded or overlapping scenes.
 
 Depth is used as a consistency filter after PPE segmentation. For each detected worker, the pipeline estimates relative depth inside the worker box, then compares it with the median depth of each PPE segmentation mask. PPE masks with depth values inconsistent with the target worker can be filtered before aggregation.
 
@@ -88,7 +91,6 @@ outputs/
 ├── overlays/
 ├── reports/
 └── summaries/
-
 ```
 
 Example worker report:
@@ -104,6 +106,8 @@ Example worker report:
 }
 ```
 
+---
+
 # Example Results
 
 ## Input
@@ -117,7 +121,6 @@ Example worker report:
 
 ## Final Ensemble Output
 <img src="docs/examples/final_pipeline.jpg" width="700">
-
 
 ---
 
@@ -135,7 +138,7 @@ construction-scene-intelligence/
 
 ---
 
-# Script
+# Key Scripts
 
 ## Detection
 
@@ -169,27 +172,29 @@ Runs MiDaS monocular depth estimation for relative scene geometry and depth-awar
 
 ## Worker-Level PPE Pipeline
 
-
 ```text
-scripts/PersonPPE.py
+scripts/run_depth_aware_ppe_pipeline.py
 ```
 
 Runs:
 
-* person detection
-* worker cropping
-* PPE segmentation
-* worker-level PPE classification
+- person detection
+- worker cropping
+- PPE segmentation
+- worker-level PPE classification
 
 Supports:
 
-* adaptive padding
+- adaptive padding
+- ensemble inference
+- depth-aware PPE filtering
 
 Generates:
 
-* segmentation visualizations
-* JSON summaries
-* text reports
+- segmentation visualizations
+- depth visualizations
+- worker-level JSON summaries
+- human-readable PPE reports
 
 ---
 
@@ -237,6 +242,11 @@ ppe_classes:
 use_depth_filtering: true
 depth_model: DPT_Hybrid
 depth_tolerance_std: 1.0
+
+ensemble_min_mean_conf: 0.10
+ensemble_min_detected_fraction: 0.40
+```
+
 ---
 
 # Installation
@@ -286,3 +296,11 @@ name=yolo11n_seg_construction_ppe
 
 ---
 
+# Running the PPE Pipeline
+
+```bash
+python scripts/run_depth_aware_ppe_pipeline.py \
+--config configs/ppe_pipeline.yaml
+```
+
+---

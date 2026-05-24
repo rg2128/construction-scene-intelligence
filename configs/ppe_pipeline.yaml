@@ -1,5 +1,5 @@
 input_path: data/sample_images
-output_dir: outputs/PersonPPE
+output_dir: outputs/depth_aware_ppe_pipeline
 
 person_model: yolo11n.pt
 ppe_model: runs/segment/outputs/training/yolo11n_seg_construction_ppe/weights/best.pt
@@ -29,3 +29,7 @@ padding_values:
 use_depth_filtering: true
 depth_model: DPT_Hybrid
 depth_tolerance_std: 1.0
+
+ensemble_min_mean_conf: 0.10
+ensemble_min_detected_fraction: 0.40
+
