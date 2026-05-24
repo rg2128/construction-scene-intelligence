@@ -13,6 +13,54 @@ def load_config(config_path):
         return yaml.safe_load(f)
 
 
+def build_scene_summary(image_summary):
+    n_workers = len(image_summary)
+
+    workers_with_helmet = 0
+    workers_with_vest = 0
+    workers_with_violations = 0
+
+    missing_helmet = 0
+    missing_vest = 0
+
+    for worker in image_summary:
+        final = worker["final_ppe_summary"]
+
+        if final["helmet_detected"]:
+            workers_with_helmet += 1
+
+        if final["vest_detected"]:
+            workers_with_vest += 1
+
+        if final["violations"]:
+            workers_with_violations += 1
+
+        if "missing_helmet" in final["violations"]:
+            missing_helmet += 1
+
+        if "missing_vest" in final["violations"]:
+            missing_vest += 1
+
+    if n_workers == 0:
+        risk_level = "unknown"
+    elif workers_with_violations == 0:
+        risk_level = "low"
+    elif workers_with_violations / n_workers < 0.5:
+        risk_level = "medium"
+    else:
+        risk_level = "high"
+
+    return {
+        "n_workers": n_workers,
+        "workers_with_helmet": workers_with_helmet,
+        "workers_with_vest": workers_with_vest,
+        "workers_with_violations": workers_with_violations,
+        "missing_helmet": missing_helmet,
+        "missing_vest": missing_vest,
+        "risk_level": risk_level,
+    }
+
+
 def load_depth_model(model_type="DPT_Hybrid"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -58,6 +106,7 @@ def estimate_depth(image_bgr, midas, transform, device):
 
 def median_depth_in_box(depth_map, box):
     x1, y1, x2, y2 = box
+
     crop = depth_map[y1:y2, x1:x2]
 
     if crop.size == 0:
@@ -82,6 +131,7 @@ def make_padded_crop(image, box, pad):
 
 def resize_crop_if_needed(crop, target_height=256):
     h, w = crop.shape[:2]
+
     scale = max(1.0, target_height / h)
 
     new_w = int(w * scale)
@@ -108,6 +158,7 @@ def compute_depth_keep_indices(
     if worker_depth is None:
         if ppe_result.boxes is None:
             return []
+
         return list(range(len(ppe_result.boxes)))
 
     if ppe_result.masks is None or ppe_result.boxes is None:
@@ -132,6 +183,7 @@ def compute_depth_keep_indices(
             continue
 
         mask_depth = float(np.median(mask_depth_values))
+
         z_diff = abs(mask_depth - worker_depth) / depth_std
 
         if z_diff <= depth_tolerance_std:
@@ -175,7 +227,11 @@ def summarize_single_ppe_run(ppe_results, ppe_classes):
     return summary
 
 
-def aggregate_padding_results(per_padding_results, ppe_classes):
+def aggregate_padding_results(
+    per_padding_results,
+    ppe_classes,
+    cfg,
+):
     if len(per_padding_results) == 0:
         return {
             "helmet_detected": False,
@@ -200,45 +256,102 @@ def aggregate_padding_results(per_padding_results, ppe_classes):
                 detected_count += 1
 
         agg[cls] = {
-            "mean_max_conf_across_paddings": sum(max_confs) / len(max_confs),
+            "mean_max_conf_across_paddings": (
+                sum(max_confs) / len(max_confs)
+            ),
             "max_conf_across_paddings": max(max_confs),
             "detected_in_n_paddings": detected_count,
-            "detected_fraction": detected_count / len(per_padding_results),
+            "detected_fraction": (
+                detected_count / len(per_padding_results)
+            ),
         }
+
+    min_mean_conf = cfg.get("ensemble_min_mean_conf", 0.10)
+    min_detected_fraction = cfg.get("ensemble_min_detected_fraction", 0.40)
+    exclusive_margin = cfg.get("exclusive_class_margin", 0.15)
 
     helmet_score = agg["helmet"]["mean_max_conf_across_paddings"]
     vest_score = agg["vest"]["mean_max_conf_across_paddings"]
 
-    without_helmet_score = agg["without_helmet"]["mean_max_conf_across_paddings"]
-    without_vest_score = agg["without_vest"]["mean_max_conf_across_paddings"]
-
-    helmet_detected = (
-        helmet_score >= 0.10
-        or agg["helmet"]["detected_fraction"] >= 0.40
+    without_helmet_score = (
+        agg["without_helmet"]["mean_max_conf_across_paddings"]
     )
 
-    vest_detected = (
-        vest_score >= 0.10
-        or agg["vest"]["detected_fraction"] >= 0.40
+    without_vest_score = (
+        agg["without_vest"]["mean_max_conf_across_paddings"]
+    )
+
+    helmet_fraction = agg["helmet"]["detected_fraction"]
+    vest_fraction = agg["vest"]["detected_fraction"]
+
+    without_helmet_fraction = agg["without_helmet"]["detected_fraction"]
+    without_vest_fraction = agg["without_vest"]["detected_fraction"]
+
+    helmet_supported = (
+        helmet_score >= min_mean_conf
+        or helmet_fraction >= min_detected_fraction
+    )
+
+    vest_supported = (
+        vest_score >= min_mean_conf
+        or vest_fraction >= min_detected_fraction
+    )
+
+    without_helmet_supported = (
+        without_helmet_score >= min_mean_conf
+        or without_helmet_fraction >= min_detected_fraction
+    )
+
+    without_vest_supported = (
+        without_vest_score >= min_mean_conf
+        or without_vest_fraction >= min_detected_fraction
+    )
+
+    # -----------------------------
+    # Mutually exclusive decisions
+    # -----------------------------
+    # helmet vs without_helmet
+    # vest vs without_vest
+    #
+    # A negative class only wins if it beats
+    # the positive class by a configurable margin.
+    # This prevents false violations when both classes
+    # are weakly or moderately detected.
+    # -----------------------------
+
+    helmet_detected = (
+        helmet_supported
+        and helmet_score >= without_helmet_score - exclusive_margin
     )
 
     without_helmet_detected = (
-        without_helmet_score >= 0.10
-        or agg["without_helmet"]["detected_fraction"] >= 0.40
+        without_helmet_supported
+        and without_helmet_score > helmet_score + exclusive_margin
+    )
+
+    vest_detected = (
+        vest_supported
+        and vest_score >= without_vest_score - exclusive_margin
     )
 
     without_vest_detected = (
-        without_vest_score >= 0.10
-        or agg["without_vest"]["detected_fraction"] >= 0.40
+        without_vest_supported
+        and without_vest_score > vest_score + exclusive_margin
     )
 
     violations = []
 
-    if without_helmet_detected and not helmet_detected:
+    if without_helmet_detected:
         violations.append("missing_helmet")
 
-    if without_vest_detected and not vest_detected:
+    if without_vest_detected:
         violations.append("missing_vest")
+
+    if not helmet_detected and not without_helmet_detected:
+        violations.append("uncertain_helmet")
+
+    if not vest_detected and not without_vest_detected:
+        violations.append("uncertain_vest")
 
     return {
         "helmet_detected": helmet_detected,
@@ -247,10 +360,21 @@ def aggregate_padding_results(per_padding_results, ppe_classes):
         "without_vest_detected": without_vest_detected,
         "violations": violations,
         "ensemble_scores": agg,
+        "decision_thresholds": {
+            "ensemble_min_mean_conf": min_mean_conf,
+            "ensemble_min_detected_fraction": min_detected_fraction,
+            "exclusive_class_margin": exclusive_margin,
+        },
     }
 
 
-def draw_filtered_segmentation(image, ppe_result, keep_indices):
+
+
+def draw_filtered_segmentation(
+    image,
+    ppe_result,
+    keep_indices,
+):
     vis = image.copy()
 
     if ppe_result.masks is None or ppe_result.boxes is None:
@@ -260,6 +384,7 @@ def draw_filtered_segmentation(image, ppe_result, keep_indices):
 
     for i in keep_indices:
         mask_xy = ppe_result.masks.xy[i]
+
         pts = np.array(mask_xy, dtype=np.int32)
 
         cls_id = int(ppe_result.boxes.cls[i])
@@ -267,7 +392,14 @@ def draw_filtered_segmentation(image, ppe_result, keep_indices):
         conf = float(ppe_result.boxes.conf[i])
 
         cv2.fillPoly(overlay, [pts], (255, 0, 255))
-        cv2.polylines(vis, [pts], isClosed=True, color=(255, 0, 255), thickness=2)
+
+        cv2.polylines(
+            vis,
+            [pts],
+            isClosed=True,
+            color=(255, 0, 255),
+            thickness=2,
+        )
 
         x_text = int(np.min(pts[:, 0]))
         y_text = int(np.min(pts[:, 1]))
@@ -283,11 +415,23 @@ def draw_filtered_segmentation(image, ppe_result, keep_indices):
             cv2.LINE_AA,
         )
 
-    vis = cv2.addWeighted(overlay, 0.35, vis, 0.65, 0)
+    vis = cv2.addWeighted(
+        overlay,
+        0.35,
+        vis,
+        0.65,
+        0,
+    )
+
     return vis
 
 
-def draw_worker_result(image, box, worker_id, final_summary):
+def draw_worker_result(
+    image,
+    box,
+    worker_id,
+    final_summary,
+):
     x1, y1, x2, y2 = box
 
     if final_summary["violations"]:
@@ -297,7 +441,13 @@ def draw_worker_result(image, box, worker_id, final_summary):
         color = (0, 255, 0)
         status = "ppe_ok"
 
-    cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
+    cv2.rectangle(
+        image,
+        (x1, y1),
+        (x2, y2),
+        color,
+        3,
+    )
 
     label = f"worker_{worker_id}: {status}"
 
@@ -318,9 +468,49 @@ def write_human_report(report_path, full_summary):
         f.write("PPE ENSEMBLE ANALYSIS REPORT\n")
         f.write("=" * 80 + "\n\n")
 
-        for image_name, workers in full_summary.items():
+        for image_name, image_data in full_summary.items():
+            scene_summary = image_data["scene_summary"]
+            workers = image_data["workers"]
+
             f.write(f"IMAGE: {image_name}\n")
             f.write("-" * 80 + "\n")
+
+            f.write("\nScene Summary:\n")
+
+            f.write(
+                f"  Workers detected: "
+                f"{scene_summary['n_workers']}\n"
+            )
+
+            f.write(
+                f"  Workers with helmet: "
+                f"{scene_summary['workers_with_helmet']}\n"
+            )
+
+            f.write(
+                f"  Workers with vest: "
+                f"{scene_summary['workers_with_vest']}\n"
+            )
+
+            f.write(
+                f"  Workers with violations: "
+                f"{scene_summary['workers_with_violations']}\n"
+            )
+
+            f.write(
+                f"  Missing helmet: "
+                f"{scene_summary['missing_helmet']}\n"
+            )
+
+            f.write(
+                f"  Missing vest: "
+                f"{scene_summary['missing_vest']}\n"
+            )
+
+            f.write(
+                f"  Risk level: "
+                f"{scene_summary['risk_level']}\n\n"
+            )
 
             if len(workers) == 0:
                 f.write("No workers detected.\n\n")
@@ -328,17 +518,31 @@ def write_human_report(report_path, full_summary):
 
             for worker in workers:
                 f.write(f"\nWorker {worker['worker_id']}\n")
-                f.write(f"Bounding Box: {worker['person_bbox_xyxy']}\n")
+
+                f.write(
+                    f"Bounding Box: "
+                    f"{worker['person_bbox_xyxy']}\n"
+                )
 
                 final_summary = worker["final_ppe_summary"]
 
                 f.write("\nFinal PPE Decision:\n")
-                f.write(f"  Helmet Detected: {final_summary['helmet_detected']}\n")
-                f.write(f"  Vest Detected: {final_summary['vest_detected']}\n")
+
+                f.write(
+                    f"  Helmet Detected: "
+                    f"{final_summary['helmet_detected']}\n"
+                )
+
+                f.write(
+                    f"  Vest Detected: "
+                    f"{final_summary['vest_detected']}\n"
+                )
+
                 f.write(
                     f"  Without Helmet: "
                     f"{final_summary['without_helmet_detected']}\n"
                 )
+
                 f.write(
                     f"  Without Vest: "
                     f"{final_summary['without_vest_detected']}\n"
@@ -358,44 +562,29 @@ def write_human_report(report_path, full_summary):
 
                 for cls_name, cls_result in scores.items():
                     f.write(f"\n  {cls_name}\n")
+
                     f.write(
                         f"    Mean Max Confidence: "
                         f"{cls_result['mean_max_conf_across_paddings']:.3f}\n"
                     )
+
                     f.write(
                         f"    Max Confidence: "
                         f"{cls_result['max_conf_across_paddings']:.3f}\n"
                     )
+
                     f.write(
                         f"    Detected Fraction: "
                         f"{cls_result['detected_fraction']:.2f}\n"
                     )
+
                     f.write(
                         f"    Detected In "
                         f"{cls_result['detected_in_n_paddings']} / "
                         f"{len(worker['padding_values_tested'])} paddings\n"
                     )
 
-                f.write("\nPer-Padding Breakdown:\n")
-
-                for pad_result in worker["per_padding_results"]:
-                    f.write(f"\n    Padding = {pad_result['padding_px']}px\n")
-                    f.write(
-                        f"    Depth filtering used = "
-                        f"{pad_result['depth_filtering_used']}\n"
-                    )
-
-                    for cls_name, cls_info in pad_result["ppe_summary"].items():
-                        f.write(
-                            f"      {cls_name}: "
-                            f"detected={cls_info['detected']} "
-                            f"max_conf={cls_info['max_conf']:.3f} "
-                            f"mean_conf={cls_info['mean_conf']:.3f}\n"
-                        )
-
                 f.write("\n")
-
-            f.write("\n\n")
 
 
 def main():
@@ -408,6 +597,7 @@ def main():
     )
 
     args = parser.parse_args()
+
     cfg = load_config(args.config)
 
     output_dir = Path(cfg["output_dir"])
@@ -440,6 +630,9 @@ def main():
         if image is None:
             continue
 
+        image_output_dir = output_dir / img_path.stem
+        image_output_dir.mkdir(parents=True, exist_ok=True)
+
         if use_depth:
             full_depth = estimate_depth(
                 image,
@@ -458,6 +651,7 @@ def main():
         )
 
         annotated = image.copy()
+
         image_summary = []
         person_boxes = []
 
@@ -467,8 +661,12 @@ def main():
 
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
+
                 person_conf = float(box.conf[0])
-                person_boxes.append(([x1, y1, x2, y2], person_conf))
+
+                person_boxes.append(
+                    ([x1, y1, x2, y2], person_conf)
+                )
 
         for worker_idx, (person_box, person_conf) in enumerate(
             person_boxes,
@@ -477,7 +675,10 @@ def main():
             worker_depth = None
 
             if use_depth:
-                worker_depth = median_depth_in_box(full_depth, person_box)
+                worker_depth = median_depth_in_box(
+                    full_depth,
+                    person_box,
+                )
 
             per_padding_results = []
 
@@ -491,17 +692,25 @@ def main():
                 if crop.size == 0:
                     continue
 
-                crop_for_model, original_hw, model_hw, scale = resize_crop_if_needed(
+                (
+                    crop_for_model,
+                    original_hw,
+                    model_hw,
+                    scale,
+                ) = resize_crop_if_needed(
                     crop,
                     target_height=cfg["small_crop_target_height"],
                 )
 
                 crop_path = (
-                    output_dir
-                    / f"{img_path.stem}_worker_{worker_idx:02d}_pad_{pad:03d}_crop.jpg"
+                    image_output_dir
+                    / f"worker_{worker_idx:02d}_pad_{pad:03d}_crop.jpg"
                 )
 
-                cv2.imwrite(str(crop_path), crop_for_model)
+                cv2.imwrite(
+                    str(crop_path),
+                    crop_for_model,
+                )
 
                 ppe_results = ppe_model.predict(
                     str(crop_path),
@@ -526,10 +735,7 @@ def main():
                         ),
                         interpolation=cv2.INTER_CUBIC,
                     )
-                                        # ---------------------------------
-                    # Save depth visualization
-                    # ---------------------------------
-                    
+
                     depth_norm = cv2.normalize(
                         crop_depth_resized,
                         None,
@@ -537,26 +743,22 @@ def main():
                         255,
                         cv2.NORM_MINMAX,
                     ).astype(np.uint8)
-                    
+
                     depth_color = cv2.applyColorMap(
                         depth_norm,
                         cv2.COLORMAP_INFERNO,
                     )
-                    
+
                     depth_vis_path = (
-                        output_dir
-                        / (
-                            f"{img_path.stem}"
-                            f"_worker_{worker_idx:02d}"
-                            f"_pad_{pad:03d}"
-                            f"_depth.jpg"
-                        )
+                        image_output_dir
+                        / f"worker_{worker_idx:02d}_pad_{pad:03d}_depth.jpg"
                     )
-                    
+
                     cv2.imwrite(
                         str(depth_vis_path),
                         depth_color,
                     )
+
                     for ppe_result in ppe_results:
                         keep_indices = compute_depth_keep_indices(
                             ppe_result=ppe_result,
@@ -567,6 +769,7 @@ def main():
                                 1.0,
                             ),
                         )
+
                         ppe_result.keep_depth_indices = keep_indices
 
                     depth_filtering_used = True
@@ -580,38 +783,51 @@ def main():
                         else:
                             ppe_result.keep_depth_indices = []
 
-                seg_path = (
-                    output_dir
-                    / f"{img_path.stem}_worker_{worker_idx:02d}_pad_{pad:03d}_seg.jpg"
-                )
+                    depth_vis_path = None
+                    crop_depth_resized = None
 
-                for ppe_result in ppe_results:
+                for i, ppe_result in enumerate(ppe_results):
+                    seg_path = (
+                        image_output_dir
+                        / (
+                            f"worker_{worker_idx:02d}"
+                            f"_pad_{pad:03d}"
+                            f"_seg_{i:02d}.jpg"
+                        )
+                    )
+
                     ppe_annotated = draw_filtered_segmentation(
                         crop_for_model,
                         ppe_result,
                         ppe_result.keep_depth_indices,
                     )
-                    cv2.imwrite(str(seg_path), ppe_annotated)
-                    
-                    depth_overlay = draw_filtered_segmentation(
-                        depth_color,
-                        ppe_result,
-                        ppe_result.keep_depth_indices,
-                    )                        
-                    depth_overlay_path = (
-                        output_dir
-                        / (
-                            f"{img_path.stem}"
-                            f"_worker_{worker_idx:02d}"
-                            f"_pad_{pad:03d}"
-                            f"_depth_overlay.jpg"
-                        )
-                    )
-                    
+
                     cv2.imwrite(
-                        str(depth_overlay_path),
-                        depth_overlay,
-                    )    
+                        str(seg_path),
+                        ppe_annotated,
+                    )
+
+                    if use_depth:
+                        depth_overlay = draw_filtered_segmentation(
+                            depth_color,
+                            ppe_result,
+                            ppe_result.keep_depth_indices,
+                        )
+
+                        depth_overlay_path = (
+                            image_output_dir
+                            / (
+                                f"worker_{worker_idx:02d}"
+                                f"_pad_{pad:03d}"
+                                f"_depth_overlay_{i:02d}.jpg"
+                            )
+                        )
+
+                        cv2.imwrite(
+                            str(depth_overlay_path),
+                            depth_overlay,
+                        )
+
                 ppe_summary = summarize_single_ppe_run(
                     ppe_results,
                     cfg["ppe_classes"],
@@ -622,15 +838,26 @@ def main():
                         "padding_px": pad,
                         "padded_box_xyxy": padded_box,
                         "crop_path": str(crop_path),
-                        "segmentation_path": str(seg_path),
                         "crop_original_size_hw": original_hw,
                         "crop_model_input_size_hw": model_hw,
                         "resize_scale": scale,
                         "worker_depth_median": worker_depth,
                         "depth_filtering_used": depth_filtering_used,
-                        "depth_visualization_path": str(depth_vis_path),
-                        "crop_depth_mean": float(np.mean(crop_depth_resized)),
-                        "crop_depth_std": float(np.std(crop_depth_resized)),
+                        "depth_visualization_path": (
+                            str(depth_vis_path)
+                            if depth_vis_path is not None
+                            else None
+                        ),
+                        "crop_depth_mean": (
+                            float(np.mean(crop_depth_resized))
+                            if crop_depth_resized is not None
+                            else None
+                        ),
+                        "crop_depth_std": (
+                            float(np.std(crop_depth_resized))
+                            if crop_depth_resized is not None
+                            else None
+                        ),
                         "ppe_summary": ppe_summary,
                     }
                 )
@@ -638,6 +865,7 @@ def main():
             final_summary = aggregate_padding_results(
                 per_padding_results,
                 cfg["ppe_classes"],
+                cfg,
             )
 
             draw_worker_result(
@@ -659,20 +887,61 @@ def main():
                 }
             )
 
-        out_path = output_dir / f"{img_path.stem}_pipeline_ensemble.jpg"
-        cv2.imwrite(str(out_path), annotated)
+        out_path = image_output_dir / "pipeline_ensemble.jpg"
 
-        full_summary[img_path.name] = image_summary
+        cv2.imwrite(
+            str(out_path),
+            annotated,
+        )
 
-        print(f"{img_path.name}: {len(image_summary)} workers analyzed")
+        scene_summary = build_scene_summary(image_summary)
 
-    summary_path = output_dir / "person_ppe_padding_ensemble_summary.json"
+        image_result = {
+            "scene_summary": scene_summary,
+            "workers": image_summary,
+        }
+
+        full_summary[img_path.name] = image_result
+
+        image_json_path = image_output_dir / "summary.json"
+
+        with open(image_json_path, "w") as f:
+            json.dump(
+                image_result,
+                f,
+                indent=2,
+            )
+
+        image_report_path = image_output_dir / "report.txt"
+
+        write_human_report(
+            image_report_path,
+            {img_path.name: image_result},
+        )
+
+        print(
+            f"{img_path.name}: "
+            f"{len(image_summary)} workers analyzed"
+        )
+
+    summary_path = (
+        output_dir
+        / "person_ppe_padding_ensemble_summary.json"
+    )
 
     with open(summary_path, "w") as f:
-        json.dump(full_summary, f, indent=2)
+        json.dump(
+            full_summary,
+            f,
+            indent=2,
+        )
 
     report_path = output_dir / "ppe_ensemble_report.txt"
-    write_human_report(report_path, full_summary)
+
+    write_human_report(
+        report_path,
+        full_summary,
+    )
 
     print(f"Saved report to: {report_path}")
     print(f"Saved ensemble outputs to: {output_dir}")
